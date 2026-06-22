@@ -1,0 +1,42 @@
+#la-readaloud-mic {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font: 600 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  color: #fff;
+  background: linear-gradient(135deg, #6c5ce7, #00b894);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.2s ease;
+}
+
+#la-readaloud-mic:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
+#la-readaloud-mic.la-mic-listening {
+  background: linear-gradient(135deg, #d63031, #e17055);
+  animation: la-pulse 1.1s infinite;
+}
+
+#la-readaloud-mic.la-mic-error {
+  background: #636e72;
+  cursor: not-allowed;
+}
+
+#la-readaloud-mic .la-mic-icon {
+  font-size: 18px;
+}
+
+@keyframes la-pulse {
+  0%, 100% { box-shadow: 0 6px 18px rgba(214, 48, 49, 0.4); }
+  50% { box-shadow: 0 6px 28px rgba(214, 48, 49, 0.85); }
+}

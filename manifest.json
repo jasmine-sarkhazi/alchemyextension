@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Little Alchemy Read-Aloud",
+  "version": "1.0.0",
+  "description": "Speaks each Little Alchemy element aloud and lets kids drag elements by voice. Great for early readers.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://littlealchemy.com/*",
+    "https://*.littlealchemy.com/*",
+    "https://littlealchemy2.com/*",
+    "https://*.littlealchemy2.com/*"
+  ],
+  "action": {
+    "default_title": "Little Alchemy Read-Aloud",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://littlealchemy.com/*",
+        "https://*.littlealchemy.com/*",
+        "https://littlealchemy2.com/*",
+        "https://*.littlealchemy2.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
