@@ -54,12 +54,28 @@
   const ELEMENT_SELECTORS = [
     '[data-name]',
     '[data-element]',
+    '[data-key]',
     '[data-id].element',
     '.element',
     '.item',
+    '.instance',
     '.library__element',
     '.workspace__element',
-    '.playboard__element'
+    '.playboard__element',
+    '.mix'
+  ];
+
+  // Containers that hold "instances" of created elements on the play area.
+  // We watch these specifically so we can speak newly-created items.
+  const WORKSPACE_SELECTORS = [
+    '.workspace',
+    '.workspace__inner',
+    '.workspace__instances',
+    '.instances',
+    '.playboard',
+    '.play-area',
+    '#workspace',
+    '.game__workspace'
   ];
 
   function isElementNode(node) {
@@ -75,9 +91,9 @@
       node.getAttribute('aria-label') ||
       node.getAttribute('title');
     if (attr) return attr;
-    // Look for child label
+    // Look for child label (Little Alchemy 2 uses .item__text / .instance__text)
     const label = node.querySelector?.(
-      '.element__text, .item__text, .label, .name, span, p'
+      '.item__text, .instance__text, .element__text, .label, .name, span, p'
     );
     const text = (label?.textContent || node.textContent || '').trim();
     // Skip if it looks like a number / count
@@ -124,6 +140,18 @@
   );
 
   document.addEventListener(
+    'click',
+    (e) => {
+      if (!settings.enabled || !settings.speakOnDrag) return;
+      const node = closestElementNode(e.target);
+      if (!node) return;
+      const name = nameOf(node);
+      if (name) speak(name);
+    },
+    true
+  );
+
+  document.addEventListener(
     'dragstart',
     (e) => {
       if (!settings.enabled || !settings.speakOnDrag) return;
@@ -152,25 +180,66 @@
   );
 
   // ---------- New element creation ----------
+  // We treat anything added inside the workspace (or matching the instance/
+  // element selectors) as a "new element" to read aloud. We also watch for
+  // text changes on existing instances in case Little Alchemy 2 reuses a
+  // node and swaps its label after a successful combination.
   const seenInBoard = new WeakSet();
+  const seenLabel = new WeakMap();
+
+  function isInWorkspace(node) {
+    if (!(node instanceof Element)) return false;
+    for (const s of WORKSPACE_SELECTORS) {
+      if (node.closest?.(s)) return true;
+    }
+    return false;
+  }
+
+  function handlePossibleNewInstance(node) {
+    if (!(node instanceof Element)) return;
+    // Only announce things that are actually in the play area.
+    if (!isInWorkspace(node)) return;
+    if (seenInBoard.has(node)) return;
+    seenInBoard.add(node);
+    const name = nameOf(node);
+    if (!name) return;
+    seenLabel.set(node, name);
+    speak(name);
+  }
+
   const boardObserver = new MutationObserver((muts) => {
     if (!settings.enabled || !settings.speakOnCreate) return;
     for (const m of muts) {
+      // Newly added nodes (the common case for a created element)
       for (const n of m.addedNodes) {
         if (!(n instanceof Element)) continue;
-        const nodes = isElementNode(n)
-          ? [n]
-          : Array.from(n.querySelectorAll?.(ELEMENT_SELECTORS.join(',')) || []);
-        for (const node of nodes) {
-          if (seenInBoard.has(node)) continue;
-          seenInBoard.add(node);
+        if (isElementNode(n)) handlePossibleNewInstance(n);
+        const inner = n.querySelectorAll?.(ELEMENT_SELECTORS.join(','));
+        if (inner) for (const node of inner) handlePossibleNewInstance(node);
+      }
+      // Label/text changes on an existing instance
+      if (m.type === 'characterData' || m.type === 'attributes') {
+        const node =
+          m.target instanceof Element
+            ? closestElementNode(m.target)
+            : closestElementNode(m.target.parentElement);
+        if (node && isInWorkspace(node)) {
           const name = nameOf(node);
-          if (name) speak(name);
+          if (name && seenLabel.get(node) !== name) {
+            seenLabel.set(node, name);
+            speak(name);
+          }
         }
       }
     }
   });
-  boardObserver.observe(document.body, { childList: true, subtree: true });
+  boardObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['data-name', 'data-element', 'data-key', 'title', 'aria-label']
+  });
 
   // ---------- Voice → drop on canvas ----------
   function findElementByName(spoken) {
