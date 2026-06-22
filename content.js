@@ -242,6 +242,22 @@
   });
 
   // ---------- Voice → drop on canvas ----------
+  // Prefer library items (sidebar) over instances already on the canvas, so
+  // saying "fire" picks the source tile instead of an existing fire instance.
+  const LIBRARY_SELECTORS = [
+    '.library .item',
+    '.library__element',
+    '.elements .item',
+    '.sidebar .item',
+    '.menu .item',
+    '.items .item'
+  ];
+
+  function isInLibrary(el) {
+    if (!(el instanceof Element)) return false;
+    return LIBRARY_SELECTORS.some((s) => el.matches?.(s) || el.closest?.(s));
+  }
+
   function findElementByName(spoken) {
     const q = spoken.toLowerCase().trim();
     if (!q) return null;
@@ -256,6 +272,11 @@
       else if (name.split(/\s+/).includes(q)) score = 80;
       else if (name.startsWith(q)) score = 60;
       else if (name.includes(q)) score = 40;
+      if (!score) continue;
+      // Boost library items so we drag a fresh copy onto the canvas.
+      if (isInLibrary(c)) score += 50;
+      // Penalize items inside the workspace (existing instances).
+      if (isInWorkspace(c)) score -= 30;
       if (score > bestScore) {
         best = c;
         bestScore = score;
@@ -265,43 +286,116 @@
   }
 
   function findCanvas() {
-    return (
-      document.querySelector(
-        '.workspace, .playboard, .play-area, #workspace, canvas, .game__workspace'
-      ) || document.body
-    );
+    for (const s of WORKSPACE_SELECTORS) {
+      const el = document.querySelector(s);
+      if (el) return el;
+    }
+    return document.querySelector('canvas') || document.body;
   }
 
+  // Dispatches a sequence of pointer + mouse + drag events to simulate a
+  // user dragging `sourceEl` and dropping it at the center of `targetEl`.
+  // Little Alchemy 2 uses pointer events, so we fire those first; mouse and
+  // HTML5 drag-and-drop events follow as a fallback for v1.
   function simulateDrop(sourceEl, targetEl) {
     const s = sourceEl.getBoundingClientRect();
     const t = targetEl.getBoundingClientRect();
     const from = { x: s.left + s.width / 2, y: s.top + s.height / 2 };
-    // Random-ish location in the canvas so multiple drops don't stack.
     const to = {
-      x: t.left + 80 + Math.random() * Math.max(40, t.width - 160),
-      y: t.top + 80 + Math.random() * Math.max(40, t.height - 160)
+      x: t.left + t.width / 2 + (Math.random() - 0.5) * Math.min(200, t.width * 0.5),
+      y: t.top + t.height / 2 + (Math.random() - 0.5) * Math.min(200, t.height * 0.5)
     };
 
-    const fire = (type, x, y, target) => {
-      const ev = new MouseEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        view: window,
-        clientX: x,
-        clientY: y,
-        button: 0,
-        buttons: type === 'mouseup' ? 0 : 1
-      });
+    const pointerOpts = (x, y, type) => ({
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX: x,
+      clientY: y,
+      screenX: x,
+      screenY: y,
+      button: 0,
+      buttons: type === 'pointerup' || type === 'mouseup' ? 0 : 1,
+      pointerId: 1,
+      pointerType: 'mouse',
+      isPrimary: true,
+      width: 1,
+      height: 1,
+      pressure: type === 'pointerup' ? 0 : 0.5
+    });
+
+    const firePointer = (type, x, y, target) => {
+      const Ctor = window.PointerEvent || MouseEvent;
+      const ev = new Ctor(type, pointerOpts(x, y, type));
+      target.dispatchEvent(ev);
+    };
+    const fireMouse = (type, x, y, target) => {
+      const ev = new MouseEvent(type, pointerOpts(x, y, type));
+      target.dispatchEvent(ev);
+    };
+    const fireDrag = (type, x, y, target, dt) => {
+      let ev;
+      try {
+        ev = new DragEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          view: window,
+          clientX: x,
+          clientY: y,
+          dataTransfer: dt
+        });
+      } catch {
+        ev = new MouseEvent(type, pointerOpts(x, y, type));
+      }
       target.dispatchEvent(ev);
     };
 
-    fire('mousedown', from.x, from.y, sourceEl);
-    fire('mousemove', (from.x + to.x) / 2, (from.y + to.y) / 2, document);
-    fire('mousemove', to.x, to.y, targetEl);
-    fire('mouseup', to.x, to.y, targetEl);
-    // Some builds use click-to-add
-    fire('click', from.x, from.y, sourceEl);
+    // Step through several intermediate points so games that ignore tiny
+    // movements still register a real drag.
+    const steps = 6;
+    const path = [];
+    for (let i = 1; i <= steps; i++) {
+      path.push({
+        x: from.x + (to.x - from.x) * (i / steps),
+        y: from.y + (to.y - from.y) * (i / steps)
+      });
+    }
+
+    // Pointer + mouse sequence
+    firePointer('pointerover', from.x, from.y, sourceEl);
+    firePointer('pointerenter', from.x, from.y, sourceEl);
+    fireMouse('mouseover', from.x, from.y, sourceEl);
+    fireMouse('mouseenter', from.x, from.y, sourceEl);
+    firePointer('pointerdown', from.x, from.y, sourceEl);
+    fireMouse('mousedown', from.x, from.y, sourceEl);
+
+    for (const p of path) {
+      const under = document.elementFromPoint(p.x, p.y) || targetEl;
+      firePointer('pointermove', p.x, p.y, under);
+      fireMouse('mousemove', p.x, p.y, under);
+    }
+
+    const finalUnder = document.elementFromPoint(to.x, to.y) || targetEl;
+    firePointer('pointerup', to.x, to.y, finalUnder);
+    fireMouse('mouseup', to.x, to.y, finalUnder);
+
+    // HTML5 drag-and-drop fallback (used by Little Alchemy v1)
+    let dt = null;
+    try { dt = new DataTransfer(); } catch {}
+    fireDrag('dragstart', from.x, from.y, sourceEl, dt);
+    for (const p of path) {
+      const under = document.elementFromPoint(p.x, p.y) || targetEl;
+      fireDrag('dragover', p.x, p.y, under, dt);
+    }
+    fireDrag('drop', to.x, to.y, finalUnder, dt);
+    fireDrag('dragend', to.x, to.y, sourceEl, dt);
+  }
+
+  function flashHighlight(el) {
+    el.classList.add('la-readaloud-flash');
+    setTimeout(() => el.classList.remove('la-readaloud-flash'), 900);
   }
 
   function dropByName(spoken) {
@@ -310,10 +404,13 @@
       speak(`I can't find ${spoken}`);
       return false;
     }
-    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    flashHighlight(el);
     const canvas = findCanvas();
-    simulateDrop(el, canvas);
     speak(nameOf(el));
+    // Give scrollIntoView a moment so the source rect is in view before we
+    // start dispatching pointer events.
+    setTimeout(() => simulateDrop(el, canvas), 200);
     return true;
   }
 
