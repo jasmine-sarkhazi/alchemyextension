@@ -36,6 +36,13 @@
   font-size: 18px;
 }
 
+.la-readaloud-flash {
+  outline: 3px solid #00b894 !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(0, 184, 148, 0.35) !important;
+  transition: outline-color 0.2s, box-shadow 0.2s;
+}
+
 @keyframes la-pulse {
   0%, 100% { box-shadow: 0 6px 18px rgba(214, 48, 49, 0.4); }
   50% { box-shadow: 0 6px 28px rgba(214, 48, 49, 0.85); }
